@@ -27,3 +27,8 @@ Nama-Project-Folder/
 │
 └── index.html              <-- File utama (sudah ada di repo ini)
 Catatan: Jangan mengubah nama folder model atau memindahkan isinya, karena kode index.html merujuk ke path model/nama-file.gltf.
+
+```
+
+### 4. Cara Menjalankan
+WAJIB Menggunakan Live Server

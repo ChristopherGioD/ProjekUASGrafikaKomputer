@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Three.js GLTF Loader</title>
+    <style>
+        body { margin: 0; }
+        canvas { display: block; }
+    </style>
+</head>
+<body>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+    <script type="module">
+        import * as THREE from 'three';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        // 1. Persediaan Pemandangan, Kamera dan Pemapar (Renderer)
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0xf0f0f0); // Warna kelabu lembut
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        // 2. Tambah Kawalan Orbit (OrbitControls)
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true; // Untuk pergerakan yang lebih lancar
+        controls.dampingFactor = 0.25;
+        controls.screenSpacePanning = false;
+
+        // 3. Tambah Pencahayaan
+        // Cahaya ambien untuk menerangi keseluruhan pemandangan secara sama rata
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+        scene.add(ambientLight);
+
+        // Cahaya berarah untuk menyerupai cahaya matahari
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+        directionalLight.position.set(5, 10, 7.5);
+        scene.add(directionalLight);
+
+        // 4. Memuatkan Model GLTF
+        const loader = new GLTFLoader();
+        // Gantikan 'path/to/your/model.gltf' dengan laluan ke fail model anda
+        loader.load('model/spirited_away_train_fanart/scene.gltf', function (gltf) {
+            scene.add(gltf.scene);
+        }, undefined, function (error) {
+            console.error(error);
+        });
+
+        // 5. Kedudukan Kamera
+        camera.position.z = 5;
+
+        // 6. Gelung Animasi (Animation Loop)
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // Kemas kini kawalan
+            controls.update();
+
+            renderer.render(scene, camera);
+        }
+
+        animate();
+
+        // Mengendalikan saiz semula tetingkap
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+    </script>
+</body>
+</html>

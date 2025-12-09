@@ -1,0 +1,1392 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Spirited Away Train Scene - Multi Parts</title>
+    <style>
+        body { 
+            margin: 0; 
+            overflow: hidden;
+            background: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            width: 100vw;
+            height: 100vh;
+            touch-action: none;
+        }
+        #canvasContainer {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        canvas { 
+            display: block;
+            max-width: 100%;
+            max-height: 100%;
+        }
+
+        #timer {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background-color: rgba(0, 0, 0, 0.5);
+            color: white;
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-family: monospace;
+            font-size: 24px;
+            z-index: 100;
+        }
+
+        #stateLabel {
+            position: absolute;
+            top: 50px;
+            right: 10px;
+            background-color: rgba(0, 0, 0, 0.5);
+            color: yellow;
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-family: monospace;
+            font-size: 16px;
+            z-index: 100;
+        }
+
+        #fpsCounter {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background-color: rgba(0, 0, 0, 0.5);
+            color: lime;
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-family: monospace;
+            font-size: 20px;
+            z-index: 100;
+        }
+
+
+
+        #fadeOverlay{
+        position: fixed;
+        inset: 0;
+        background: #000;
+        opacity: 0;
+        pointer-events: none;
+        z-index: 999; /* di atas canvas + UI */
+        transition: none;
+        }
+
+        #loadingScreen {
+            position: fixed;
+            inset: 0;
+            background: #000;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            font-family: monospace;
+            color: white;
+        }
+        #loadingBar {
+            width: 300px;
+            height: 20px;
+            border: 2px solid #fff;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-top: 20px;
+        }
+        #loadingProgress {
+            width: 0%;
+            height: 100%;
+            background: linear-gradient(90deg, #4CAF50, #8BC34A);
+            transition: width 0.3s;
+        }
+
+        #endingScreen {
+            position: fixed;
+            inset: 0;
+            background: #000;
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 10000;
+            font-family: 'Georgia', serif;
+            color: white;
+            text-align: center;
+            pointer-events: auto;
+        }
+        #endingScreen h1 {
+            font-size: 48px;
+            margin-bottom: 20px;
+            animation: fadeIn 2s;
+        }
+        #endingScreen p {
+            font-size: 24px;
+            opacity: 0.8;
+            animation: fadeIn 3s;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+    </style>
+</head>
+
+<body>
+<div id="loadingScreen">
+    <h2>🚂 Spirited Away</h2>
+    <p id="loadingText">Loading assets...</p>
+    <div id="loadingBar">
+        <div id="loadingProgress"></div>
+    </div>
+    <p id="loadingPercent">0%</p>
+</div>
+<div id="canvasContainer">
+    <div id="fpsCounter">FPS: 0</div>
+    <div id="timer">Time: 0.0s</div>
+    <div id="stateLabel">State: INIT</div>
+    <div id="fadeOverlay"></div>
+</div>
+<div id="endingScreen">
+    <h1>🌸 Terima Kasih 🌸</h1>
+    <p>Thank you for watching</p>
+    <p style="margin-top: 40px; font-size: 18px; opacity: 0.6;">Spirited Away - Train Scene</p>
+</div>
+<script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+      }
+    }
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { Water } from 'three/addons/objects/Water.js';
+import { Sky } from 'three/addons/objects/Sky.js';
+import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+
+const texLoader = new THREE.TextureLoader();
+
+// === GLOBALS ===
+let scene, camera, renderer, water, sky, sun;
+let railGroup, trainGroup, islandGroup, stationGroup, iseGroup;   // ✅ tambah iseGroup
+let train, trackingGroup;
+let island;
+let islandHouse = null;
+let fadeOverlay;
+let pointerControls;
+let orbitControls;
+let isFreeRoam = false;
+let isOrbitMode = false;
+const keys = { w: false, a: false, s: false, d: false, space: false, shift: false };
+
+
+function setFade(a){
+  if(!fadeOverlay) return;
+  fadeOverlay.style.opacity = THREE.MathUtils.clamp(a, 0, 1).toFixed(3);
+}
+
+const ISLAND_HOUSE_BASE_SCALE = 0.00015;
+const ISLAND_BASE_SCALE       = 250;
+
+//parameter untuk align train di station(berhentinya kereta)
+const STATION_TRAIN_ALIGN = {
+    baseX: 0,
+    baseY: -1,
+    baseZ: 40,
+    moveStartOffset: 220,
+    moveStopOffset: -15,
+    rotYDeg: 18,
+    sideOffset: 25
+};
+
+// ✅ meta untuk scene ISE (supaya kamera auto pas)
+const ISE_META = {
+    root: null,
+    focus: new THREE.Vector3(0, 5, 0),
+    diag: 250,
+    dir: new THREE.Vector3(1, 0.25, -1).normalize() // arah kamera (bisa kamu ubah)
+};
+
+let timerElement, stateElement, fpsElement;
+let fpsFrames = 0;
+let fpsLastTime = 0;
+
+// FPS Limiter
+const TARGET_FPS = 60;
+const FRAME_TIME = 1000 / TARGET_FPS;
+let lastFrameTime = 0;
+
+const clock = new THREE.Clock();
+const currentLookAt = new THREE.Vector3();
+
+// Story states
+const STORY_RAIL    = 'STORY_RAIL';
+const STORY_TRAIN   = 'STORY_TRAIN';
+const STORY_ISLAND  = 'STORY_ISLAND';
+const STORY_STATION = 'STORY_STATION';
+const STORY_ISE     = 'STORY_ISE'; // ✅ scene baru
+const STORY_RAIL_REVERSE = 'STORY_RAIL_REVERSE';
+const STORY_NIGHT_DEPART = 'STORY_NIGHT_DEPART';
+
+let railMinZ = -40;
+let railMaxZ = 400;
+
+let storyState = STORY_RAIL;
+let storyStartTime = 0;
+
+// Camera states (inside train scene)
+let cameraState = 'STATE_PANNING';
+
+let loader;
+let station = null;
+
+let ambientLight, directionalLight;
+let collisionObjects = [];
+let bgm;
+let manualBrightness = 1.0;
+
+// Loading manager
+let loadingManager;
+let loadingScreen, loadingText, loadingProgress, loadingPercent;
+let assetsLoaded = 0;
+const totalAssets = 6; // rail, train, noface, island, house, signal, station, ise
+
+// Fixed resolution settings
+const FIXED_WIDTH = 1920;
+const FIXED_HEIGHT = 1080;
+const FIXED_ASPECT = FIXED_WIDTH / FIXED_HEIGHT;
+
+// Performance settings
+const RENDER_SCALE = 1; // 0.5 = half res (faster), 1.0 = full res (slower)
+const WATER_QUALITY = 256; // 256 = low, 512 = medium, 1024 = high
+const SHADOW_MAP_SIZE = 1024; // 1024 = low, 2048 = medium, 4096 = high
+
+// Manual zoom control
+let manualZoom = 1.0;
+const BASE_FOV = 35;
+
+// === INIT ===
+function init() {
+    // Setup loading screen
+    loadingScreen = document.getElementById('loadingScreen');
+    loadingText = document.getElementById('loadingText');
+    loadingProgress = document.getElementById('loadingProgress');
+    loadingPercent = document.getElementById('loadingPercent');
+
+    // Loading manager
+    loadingManager = new THREE.LoadingManager();
+    loadingManager.onProgress = (url, loaded, total) => {
+        const progress = (loaded / total) * 100;
+        loadingProgress.style.width = progress + '%';
+        loadingPercent.textContent = Math.round(progress) + '%';
+    };
+    loadingManager.onLoad = () => {
+        loadingText.textContent = 'Ready!';
+        setTimeout(() => {
+            loadingScreen.style.opacity = '0';
+            loadingScreen.style.transition = 'opacity 0.5s';
+            setTimeout(() => {
+                loadingScreen.style.display = 'none';
+            }, 500);
+        }, 500);
+    };
+
+    scene = new THREE.Scene();
+
+    camera = new THREE.PerspectiveCamera(
+        BASE_FOV,
+        FIXED_ASPECT,
+        1,
+        20000
+    );
+    camera.position.set(150, 25, 0);
+    currentLookAt.set(0, 10, 0);
+
+    // Handle window resize
+    window.addEventListener('resize', onWindowResize, false);
+
+    renderer = new THREE.WebGLRenderer({ 
+        antialias: false, // Matikan AA untuk FPS lebih tinggi
+        powerPreference: 'high-performance'
+    });
+    renderer.setSize(FIXED_WIDTH * RENDER_SCALE, FIXED_HEIGHT * RENDER_SCALE);
+    renderer.setPixelRatio(1); // Lock pixel ratio
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    // Enable shadow ONCE at init (no freeze)
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    document.getElementById('canvasContainer').appendChild(renderer.domElement);
+
+    // rotasi manual
+    // === Free Roam Controls ===
+    pointerControls = new PointerLockControls(camera, renderer.domElement);
+    
+    orbitControls = new OrbitControls(camera, renderer.domElement);
+    orbitControls.enabled = false;
+    orbitControls.enableDamping = true;
+    orbitControls.dampingFactor = 0.05;
+    orbitControls.minDistance = 5;
+    orbitControls.maxDistance = 500;
+
+    // Prevent browser zoom
+    window.addEventListener('wheel', (e) => {
+        if (e.ctrlKey) e.preventDefault();
+    }, { passive: false });
+    
+    window.addEventListener('keydown', (e) => {
+        // Prevent Ctrl +/- zoom
+        if ((e.ctrlKey || e.metaKey) && (e.key === '+' || e.key === '-' || e.key === '=' || e.key === '0')) {
+            e.preventDefault();
+        }
+        if ((e.code === 'ControlLeft' || e.code === 'ControlRight') && !e.repeat) {
+            isFreeRoam = !isFreeRoam;
+            isOrbitMode = false;
+            cameraState = isFreeRoam ? 'FREE_ROAM' : 'SCRIPTED';
+            if (isFreeRoam) {
+                orbitControls.enabled = false;
+                pointerControls.lock();
+            } else {
+                pointerControls.unlock();
+            }
+        }
+        if ((e.code === 'AltLeft' || e.code === 'AltRight') && !e.repeat) {
+            e.preventDefault();
+            isOrbitMode = !isOrbitMode;
+            isFreeRoam = false;
+            cameraState = isOrbitMode ? 'ORBIT' : 'SCRIPTED';
+            orbitControls.enabled = isOrbitMode;
+            if (isOrbitMode) pointerControls.unlock();
+        }
+        if (e.code === 'KeyP' && !e.repeat) {
+            if (bgm) {
+                if (bgm.paused) bgm.play();
+                else bgm.pause();
+            }
+        }
+        if (e.code === 'BracketLeft') {
+            // Decrease brightness manual
+            manualBrightness = Math.max(0.1, manualBrightness - 0.1);
+            if (ambientLight) ambientLight.intensity = 0.8 * manualBrightness;
+            if (directionalLight) directionalLight.intensity = 1.0 * manualBrightness;
+            renderer.toneMappingExposure = manualBrightness;
+        }
+        if (e.code === 'BracketRight') {
+            manualBrightness = Math.min(2.0, manualBrightness + 0.1);
+            if (ambientLight) ambientLight.intensity = 0.8 * manualBrightness;
+            // directionallightnya ini diffuse
+            if (directionalLight) directionalLight.intensity = 1.0 * manualBrightness;
+            renderer.toneMappingExposure = manualBrightness;
+        }
+        // Manual Zoom: Numpad +/- or Equal/Minus
+        if (e.code === 'Equal' || e.code === 'NumpadAdd') {
+            manualZoom = Math.min(2.0, manualZoom + 0.1);
+            updateCameraZoom();
+        }
+        if (e.code === 'Minus' || e.code === 'NumpadSubtract') {
+            manualZoom = Math.max(0.5, manualZoom - 0.1);
+            updateCameraZoom();
+        }
+        if (e.code === 'Digit0' && !e.ctrlKey && !e.metaKey) {
+            manualZoom = 1.0;
+            updateCameraZoom();
+        }
+        if (e.code === 'KeyW') keys.w = true;
+        if (e.code === 'KeyA') keys.a = true;
+        if (e.code === 'KeyS') keys.s = true;
+        if (e.code === 'KeyD') keys.d = true;
+        if (e.code === 'Space') keys.space = true;
+        if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') keys.shift = true;
+    });
+
+    window.addEventListener('keyup', (e) => {
+        if (e.code === 'KeyW') keys.w = false;
+        if (e.code === 'KeyA') keys.a = false;
+        if (e.code === 'KeyS') keys.s = false;
+        if (e.code === 'KeyD') keys.d = false;
+        if (e.code === 'Space') keys.space = false;
+        if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') keys.shift = false;
+    });
+
+    pointerControls.addEventListener('unlock', () => {
+        if (isFreeRoam) isFreeRoam = false;
+    });
+
+    // Lights
+    ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+    scene.add(ambientLight);
+
+    directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+    directionalLight.castShadow = true; // shadow dari cahaya
+    directionalLight.shadow.mapSize.width = SHADOW_MAP_SIZE;
+    directionalLight.shadow.mapSize.height = SHADOW_MAP_SIZE;
+    directionalLight.shadow.camera.near = 0.5;
+    directionalLight.shadow.camera.far = 100;
+    // Shadow area untuk railway sign di island
+    directionalLight.shadow.camera.left = -30;
+    directionalLight.shadow.camera.right = 30;
+    directionalLight.shadow.camera.top = 30;
+    directionalLight.shadow.camera.bottom = -30;
+    directionalLight.shadow.bias = -0.0005;
+    scene.add(directionalLight);
+
+    // Water
+    sun = new THREE.Vector3();
+    const waterGeometry = new THREE.PlaneGeometry(10000, 10000);
+    const waterNormals = new THREE.TextureLoader().load(
+        'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/waternormals.jpg',
+        (t) => { t.wrapS = t.wrapT = THREE.RepeatWrapping; }
+    );
+
+    water = new Water(waterGeometry, {
+        textureWidth: WATER_QUALITY,
+        textureHeight: WATER_QUALITY,
+        waterNormals,
+        sunDirection: new THREE.Vector3(),
+        sunColor: 0xffffff,
+        waterColor: 0x001e0f,
+        distortionScale: 3.7, // semakin kecil semakin halus tapi minim gelombang
+        fog: scene.fog !== undefined
+    });
+    water.rotation.x = -Math.PI / 2;
+    scene.add(water);
+
+    // Sky
+    sky = new Sky();
+    sky.scale.setScalar(10000);
+    scene.add(sky);
+
+    const skyUniforms = sky.material.uniforms;
+    skyUniforms['turbidity'].value = 10;
+    skyUniforms['rayleigh'].value = 3;
+    skyUniforms['mieCoefficient'].value = 0.005;
+    skyUniforms['mieDirectionalG'].value = 0.7;
+
+    const parameters = { elevation: 2, azimuth: 180 };
+    const pmremGenerator = new THREE.PMREMGenerator(renderer);
+
+    const phi = THREE.MathUtils.degToRad(90 - parameters.elevation);
+    const theta = THREE.MathUtils.degToRad(parameters.azimuth);
+    sun.setFromSphericalCoords(1, phi, theta);
+
+    sky.material.uniforms['sunPosition'].value.copy(sun);
+    water.material.uniforms['sunDirection'].value.copy(sun).normalize();
+    directionalLight.position.copy(sun);
+    scene.environment = pmremGenerator.fromScene(sky).texture;
+
+    // Loader with loading manager
+    loader = new GLTFLoader(loadingManager);
+
+    // Groups
+    railGroup    = new THREE.Group();
+    trainGroup   = new THREE.Group();
+    islandGroup  = new THREE.Group();
+    stationGroup = new THREE.Group();
+    iseGroup     = new THREE.Group(); // ✅
+    scene.add(railGroup, trainGroup, islandGroup, stationGroup, iseGroup);
+
+    railGroup.position.set(0, 1.5, 0);
+
+    // Set all visible=true to preload (no freeze on switch)
+    railGroup.visible    = true;
+    trainGroup.visible   = true;
+    islandGroup.visible  = true;
+    stationGroup.visible = true;
+    iseGroup.visible     = true;
+
+    // Setup assets (all loaded at start)
+    setupRailScene();
+    setupTrainScene();
+    setupIslandScene();
+    setupStationScene();
+    setupIseScene();
+
+    // UI
+    timerElement = document.getElementById('timer');
+    stateElement = document.getElementById('stateLabel');
+    fpsElement = document.getElementById('fpsCounter');
+    fpsLastTime = performance.now();
+
+    fadeOverlay = document.getElementById('fadeOverlay');
+    setFade(0);
+
+    // BGM
+    bgm = new Audio('model/The Sixth Station (Spirited Away).mp3');
+    bgm.loop = true;
+    bgm.volume = 1;
+    bgm.play().catch(e => console.log('BGM autoplay blocked:', e));
+
+    // Hide all except starting scene
+    railGroup.visible = false;
+    islandGroup.visible = false;
+    stationGroup.visible = false;
+    iseGroup.visible = false;
+    
+    switchToTrainScene(); // mulai dari TRAIN
+}
+
+function onWindowResize() {
+    const windowAspect = window.innerWidth / window.innerHeight;
+    const canvas = renderer.domElement;
+    
+    if (windowAspect > FIXED_ASPECT) {
+        canvas.style.width = (window.innerHeight * FIXED_ASPECT) + 'px';
+        canvas.style.height = window.innerHeight + 'px';
+    } else {
+        canvas.style.width = window.innerWidth + 'px';
+        canvas.style.height = (window.innerWidth / FIXED_ASPECT) + 'px';
+    }
+    canvas.style.imageRendering = 'auto'; // Smooth scaling
+}
+
+// ini untuk zoom manual
+function updateCameraZoom() {
+    camera.fov = BASE_FOV / manualZoom;
+    camera.updateProjectionMatrix();
+}
+
+// === PART 0: RAIL ===
+function setupRailScene() {
+    loader.load('model/parts_rail_railway_track/scene.gltf', (gltf) => {
+        const railSegment = gltf.scene;
+
+        const box    = new THREE.Box3().setFromObject(railSegment);
+        const size   = box.getSize(new THREE.Vector3());
+        const center = box.getCenter(new THREE.Vector3());
+
+        railSegment.position.sub(center);
+
+        const s = 2.0;
+        railSegment.scale.set(s, s, s);
+
+        const segmentLength   = size.z * s;
+        const SEGMENT_SPACING = segmentLength * 0.98;
+        const NUM_SEGMENTS    = 18;
+
+        railMinZ = (-2) * SEGMENT_SPACING;
+        railMaxZ = (NUM_SEGMENTS - 1) * SEGMENT_SPACING;
+
+        for (let i = -2; i < NUM_SEGMENTS; i++) {
+            const seg = railSegment.clone();
+            seg.position.set(0, -1.0, i * SEGMENT_SPACING);
+            railGroup.add(seg);
+        }
+    });
+}
+
+// === PART 1: TRAIN ===
+function setupTrainScene() {
+    loader.load('model/spirited_away_train_fanart/scene.gltf', (gltf) => {
+        train = gltf.scene;
+        train.position.y = -1;
+        train.position.z = 400;
+        train.scale.set(1, 1, 1);
+        
+        // Cari kaca jendela dan buat transparan
+        train.traverse((child) => {
+            if (child.isMesh && child.material) {
+                const mat = child.material;
+                const name = (mat.name || '').toLowerCase();
+                // Deteksi material kaca berdasarkan nama atau properties
+                if (name.includes('glass') || name.includes('window') || 
+                    name.includes('kaca') || mat.transparent === true ||
+                    (mat.opacity !== undefined && mat.opacity < 1)) {
+                    mat.transparent = true;
+                    mat.opacity = 0.3;
+                    mat.metalness = 0.1; // specular
+                    mat.roughness = 0.1; // specular
+                    mat.needsUpdate = true;
+                } else {
+                    collisionObjects.push(child);
+                }
+                // Disable shadow untuk train (performa)
+                child.castShadow = false;
+                child.receiveShadow = false;
+            }
+        });
+        
+        trainGroup.add(train);
+
+        trackingGroup = new THREE.Group();
+        train.add(trackingGroup);
+
+        loader.load('model/noface/scene.gltf', (gltf2) => {
+            const noFace = gltf2.scene;
+
+            const scale = 0.3;
+            noFace.scale.set(scale, scale, scale);
+            noFace.rotation.y = THREE.MathUtils.degToRad(90);
+
+            const floorY = 6;
+            const minY = -1.283210039138794;
+            const posY = floorY - minY * scale;
+
+            noFace.position.set(-4, posY, 15);
+            
+            // Buat noface transparan + optimasi material
+            noFace.traverse((child) => {
+                if (child.isMesh && child.material) {
+                    child.material.transparent = true;
+                    child.material.opacity = 0.7;
+                    child.material.needsUpdate = true;
+                    // Optimasi: matikan shadow untuk objek transparan
+                    child.castShadow = false;
+                    child.receiveShadow = false;
+                }
+            });
+            
+            trackingGroup.add(noFace);
+        });
+    });
+}
+
+// === PART 2: ISLAND ===
+function setupIslandScene() {
+    loader.load('model/low_poly_island/scene.gltf', (gltf) => {
+        island = gltf.scene;
+
+        const s = ISLAND_BASE_SCALE;
+        island.scale.set(s, s, s);
+
+        const box    = new THREE.Box3().setFromObject(island);
+        const sizeW  = box.getSize(new THREE.Vector3());
+        const center = box.getCenter(new THREE.Vector3());
+
+        island.position.set(-center.x, -center.y, -center.z);
+
+        const diffuseTex = texLoader.load('model/low_poly_island/textures/material_0_diffuse.png');
+        diffuseTex.encoding = THREE.sRGBEncoding;
+
+        island.traverse((child) => {
+            if (child.isMesh) {
+                child.material.map = diffuseTex;
+                child.material.color.set(0xffffff);
+                child.material.metalness = 0.0;
+                child.material.roughness = 0.9;
+                child.material.needsUpdate = true;
+                // Disable shadow untuk island (performa)
+                child.castShadow = false;
+                child.receiveShadow = false;
+                collisionObjects.push(child);
+            }
+        });
+
+        islandGroup.add(island);
+
+        const islandTopLocalY = (sizeW.y * 0.5) / s; 
+
+        loader.load('model/old_house/scene.gltf', (houseGltf) => {
+            const house = houseGltf.scene;
+            const hs = ISLAND_HOUSE_BASE_SCALE;
+            house.scale.set(hs, hs, hs);
+            house.traverse((child) => {
+                if (child.isMesh) {
+                    // Disable shadow untuk house (performa)
+                    child.castShadow = false;
+                    child.receiveShadow = false;
+                    collisionObjects.push(child);
+                }
+            });
+            island.add(house);
+            house.position.set(-0.025, islandTopLocalY + 0.015, 0.01);
+            islandHouse = house;
+        });
+
+        const emptyIslandGeo = new THREE.CylinderGeometry(10, 14, 6, 24);
+        const emptyIslandMat = new THREE.MeshStandardMaterial({
+            color: 0xC8A16A, metalness: 0.0, roughness: 0.9
+        });
+        const emptyIsland = new THREE.Mesh(emptyIslandGeo, emptyIslandMat);
+        emptyIsland.receiveShadow = true; // Receive shadow dari railway sign
+        emptyIsland.castShadow = false;
+
+        emptyIsland.position.set(island.position.x + 200, -1.25, island.position.z);
+        islandGroup.add(emptyIsland);
+        collisionObjects.push(emptyIsland);
+
+        loader.load('model/railway_crossing_signal/scene.gltf', (signalGltf) => {
+            const signal = signalGltf.scene;
+            const signalScale = 3;
+            signal.scale.set(signalScale, signalScale, signalScale);
+            signal.traverse((child) => {
+                if (child.isMesh) {
+                    // ONLY railway sign cast shadow!
+                    child.castShadow = true;
+                    child.receiveShadow = false;
+                    collisionObjects.push(child);
+                }
+            });
+            emptyIsland.add(signal);
+            signal.position.set(0, 3, 0);
+            
+            const shadowPlane = new THREE.Mesh(
+                new THREE.CircleGeometry(12, 32),
+                new THREE.MeshStandardMaterial({ color: 0xC8A16A })
+            );
+            shadowPlane.rotation.x = -Math.PI / 2;
+            shadowPlane.position.y = 3.01;
+            shadowPlane.receiveShadow = true;
+            emptyIsland.add(shadowPlane);
+        });
+    });
+}
+
+// === PART 3: STATION ===
+function setupStationScene() {
+    loader.load('model/station_wild_west/scene.gltf', (gltf) => {
+        station = gltf.scene;
+
+        const s = 5;
+        station.scale.set(s, s, s);
+
+        const box    = new THREE.Box3().setFromObject(station);
+        const center = box.getCenter(new THREE.Vector3());
+
+        station.position.sub(center);
+        station.position.y = -1;
+        station.position.z = 0;
+
+        station.traverse((child) => {
+            if (child.isMesh) {
+                // Disable shadow untuk station (performa)
+                child.castShadow = false;
+                child.receiveShadow = false;
+                collisionObjects.push(child);
+            }
+        });
+
+        // Ground plane untuk terima shadow
+        const groundGeo = new THREE.PlaneGeometry(300, 300);
+        const groundMat = new THREE.MeshStandardMaterial({ color: 0x8B7355 });
+        const ground = new THREE.Mesh(groundGeo, groundMat);
+        ground.rotation.x = -Math.PI / 2;
+        ground.position.y = -0.99;
+        ground.receiveShadow = false; // Disable untuk performa
+        stationGroup.add(ground);
+
+        stationGroup.add(station);
+    });
+}
+
+// ✅ PART 4: ISE STATION (NEW)
+function setupIseScene() {
+    loader.load('model/train_at_ise-okutsu_station/scene.gltf', (gltf) => {
+        const root = gltf.scene;
+        root.scale.set(1, 1, 1);
+        root.updateMatrixWorld(true);
+
+        // hitung ulang box pada skala asli
+        const box0 = new THREE.Box3().setFromObject(root);
+        const size0 = box0.getSize(new THREE.Vector3());
+        const diag0 = size0.length();
+
+        console.log("diag0 =", diag0, "size =", size0);
+
+        const desiredDiag = 1200;         // target besar objek
+        const scale = desiredDiag / (diag0 || 1);
+        root.scale.setScalar(scale);
+
+        root.updateMatrixWorld(true);
+
+        // center ke origin
+        const box = new THREE.Box3().setFromObject(root);
+        const size = box.getSize(new THREE.Vector3());
+        const center = box.getCenter(new THREE.Vector3());
+        root.position.sub(center);
+
+        // pos sedikit di atas air
+        root.position.y = -1;
+
+        root.traverse((child) => {
+            if (child.isMesh) collisionObjects.push(child);
+        });
+
+        iseGroup.add(root);
+
+        // simpan meta kamera
+        ISE_META.root = root;
+        ISE_META.diag = size.length();
+        ISE_META.focus.set(0, Math.max(3, size.y * 0.12), 0);
+    });
+}
+
+// === SWITCH SCENES ===
+function switchToTrainScene() {
+    storyState = STORY_TRAIN;
+    storyStartTime = clock.getElapsedTime();
+    
+    if (directionalLight) {
+        directionalLight.position.copy(sun);
+    }
+
+    // Just toggle visibility (no freeze)
+    railGroup.visible    = false;
+    trainGroup.visible   = true;
+    islandGroup.visible  = false;
+    stationGroup.visible = false;
+    iseGroup.visible     = false;
+
+    camera.position.set(150, 25, 0);
+    currentLookAt.set(0, 10, 0);
+}
+
+function switchToIslandScene() {
+    storyState = STORY_ISLAND;
+    storyStartTime = clock.getElapsedTime();
+    
+    if (directionalLight) {
+        directionalLight.position.set(220, 50, 20);
+        directionalLight.target.position.set(200, 0, 0);
+        directionalLight.target.updateMatrixWorld();
+    }
+
+    // Just toggle visibility (no freeze)
+    railGroup.visible    = false;
+    trainGroup.visible   = false;
+    islandGroup.visible  = true;
+    stationGroup.visible = false;
+    iseGroup.visible     = false;
+
+    camera.position.set(10, 4, -80);
+    currentLookAt.set(0, 4, 0);
+}
+
+function switchToStationScene() {
+    storyState = STORY_STATION;
+    storyStartTime = clock.getElapsedTime();
+    
+    if (directionalLight) {
+        directionalLight.position.set(50, 100, 50);
+        directionalLight.target.position.set(0, 0, 0);
+        directionalLight.target.updateMatrixWorld();
+    }
+
+    // Just toggle visibility (no freeze)
+    railGroup.visible    = false;
+    trainGroup.visible   = true;
+    islandGroup.visible  = false;
+    stationGroup.visible = true;
+    iseGroup.visible     = false;
+
+    if (train) {
+        const yaw = THREE.MathUtils.degToRad(STATION_TRAIN_ALIGN.rotYDeg);
+
+        const dir = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
+        const side = new THREE.Vector3(-dir.z, 0, dir.x);
+
+        const basePos = new THREE.Vector3(
+            STATION_TRAIN_ALIGN.baseX,
+            STATION_TRAIN_ALIGN.baseY,
+            STATION_TRAIN_ALIGN.baseZ
+        )
+            .addScaledVector(side, STATION_TRAIN_ALIGN.sideOffset)
+            .addScaledVector(dir, STATION_TRAIN_ALIGN.moveStartOffset);
+
+        train.position.copy(basePos);
+        train.rotation.set(0, yaw, 0);
+    }
+
+    camera.position.set(40, 10, 0);
+    currentLookAt.set(0, 5, 0);
+}
+
+// ✅ new scene switch: STATION -> ISE
+function switchToIseScene() {
+    storyState = STORY_ISE;
+    storyStartTime = clock.getElapsedTime();
+    cameraState = 'STATE_ZOOM_OUT';
+
+    // Just toggle visibility (no freeze)
+    railGroup.visible    = false;
+    trainGroup.visible   = false;
+    islandGroup.visible  = false;
+    stationGroup.visible = false;
+    iseGroup.visible     = true;
+
+    // set kamera awal dekat (snap sekali)
+    const focus = ISE_META.focus.clone();
+    const nearDist = Math.max(60, ISE_META.diag * 0.35);
+    const startPos = focus.clone().addScaledVector(ISE_META.dir, nearDist);
+
+    camera.position.copy(startPos);
+    currentLookAt.copy(focus);
+    camera.lookAt(focus);
+}
+
+function switchToRailReverseScene() {
+  storyState = STORY_RAIL_REVERSE;
+  storyStartTime = clock.getElapsedTime();
+
+  // Just toggle visibility (no freeze)
+  railGroup.visible    = true;
+  trainGroup.visible   = false;
+  islandGroup.visible  = false;
+  stationGroup.visible = false;
+  iseGroup.visible     = false;
+
+  cameraState = 'STATE_RAIL_REVERSE';
+}
+
+function switchToRailScene() {
+  storyState = STORY_RAIL;
+  storyStartTime = clock.getElapsedTime();
+  cameraState = 'STATE_RAIL';
+
+  railGroup.visible    = true;
+  trainGroup.visible   = false;
+  islandGroup.visible  = false;
+  stationGroup.visible = false;
+  iseGroup.visible     = false;
+}
+
+// === CAMERA LOGIC: PART 0 (RAIL) ===
+function updateRailCamera(sceneTime) {
+    const moveSpeed = 18;
+    const baseZ = -40;
+    const camZ  = baseZ + sceneTime * moveSpeed;
+
+    const camX = 6;
+    const camY = 9;
+
+    const lookZ = camZ + 10;
+    camera.position.set(camX, camY, camZ);
+    camera.lookAt(0, 2.0, lookZ);
+}
+
+// === CAMERA LOGIC: PART 1 (TRAIN) ===
+function updateTrainCamera(sceneTime, delta) {
+    const sequenceDuration = 30;
+    const currentTime = sceneTime % sequenceDuration;
+
+    if (currentTime < 6) cameraState = 'STATE_PANNING';
+    else if (currentTime < 12) cameraState = 'STATE_APPROACHING';
+    else if (currentTime < 18) cameraState = 'STATE_TRACKING';
+    else cameraState = 'STATE_ZOOMING';
+
+    const targetPosition = new THREE.Vector3();
+    const lookAtTarget   = new THREE.Vector3();
+    let lerpSpeed = 2.0; // Speed per second
+
+    if (cameraState === 'STATE_PANNING') {
+        targetPosition.set(150, 25, 0);
+        if (train) { lookAtTarget.copy(train.position); lookAtTarget.y = 10; }
+    }
+    else if (cameraState === 'STATE_APPROACHING') {
+        if (train) {
+            targetPosition.set(train.position.x + 18, 10, train.position.z);
+            lookAtTarget.copy(train.position); lookAtTarget.y = 8;
+        }
+    }
+    else if (cameraState === 'STATE_TRACKING') {
+        if (train) {
+            const seatHeight = 4;
+            targetPosition.set(train.position.x + 2, seatHeight, train.position.z);
+            lookAtTarget.set(train.position.x, seatHeight, train.position.z);
+        }
+    }
+    else if (cameraState === 'STATE_ZOOMING') {
+        if (train) {
+            targetPosition.set(train.position.x + 8, 12, train.position.z);
+            lookAtTarget.set(train.position.x, 10, camera.position.z);
+            lerpSpeed = 0.7; // Slower for zooming
+        }
+    }
+    // rotasi kamera dengan lerp
+    // Frame-rate independent lerp: alpha = 1 - exp(-speed * deltaTime)
+    const lerpAlpha = 1 - Math.exp(-lerpSpeed * delta);
+    camera.position.lerp(targetPosition, lerpAlpha);
+    currentLookAt.lerp(lookAtTarget, lerpAlpha);
+    camera.lookAt(currentLookAt);
+}
+
+// === CAMERA LOGIC: PART 2 (ISLAND) ===
+function updateIslandCamera(sceneTime) {
+    const camX = -80 + sceneTime * 20;
+    const camY = 4;
+    const camZ = THREE.MathUtils.lerp(80, 140, Math.min(sceneTime / 5.0, 1.0));
+
+    const islandPos = island ? island.position.clone() : new THREE.Vector3(0, 8, 0);
+    camera.position.set(camX, camY, camZ);
+    camera.lookAt(islandPos.x, islandPos.y + 8, islandPos.z);
+
+    if (island) {
+        const shrinkStart    = 2.0;
+        const shrinkDuration = 10.0;
+
+        let scaleFactor = 1.0;
+        if (sceneTime <= shrinkStart) scaleFactor = 1.0;
+        else if (sceneTime >= shrinkStart + shrinkDuration) scaleFactor = 0.3;
+        else {
+            const t = THREE.MathUtils.clamp((sceneTime - shrinkStart) / shrinkDuration, 0, 1);
+            scaleFactor = THREE.MathUtils.lerp(1.0, 0.3, t);
+        }
+
+        const s = ISLAND_BASE_SCALE * scaleFactor;
+        island.scale.set(s, s, s);
+    }
+}
+
+// === CAMERA LOGIC: PART 3 (STATION) ===
+function updateStationCamera(sceneTime) {
+    if (!train) return;
+
+    const moveDuration = 6.0;
+    const t = THREE.MathUtils.clamp(sceneTime / moveDuration, 0, 1);
+
+    const yaw  = THREE.MathUtils.degToRad(STATION_TRAIN_ALIGN.rotYDeg);
+    const dir  = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
+    const side = new THREE.Vector3(-dir.z, 0, dir.x);
+
+    const basePos = new THREE.Vector3(
+        STATION_TRAIN_ALIGN.baseX,
+        STATION_TRAIN_ALIGN.baseY,
+        STATION_TRAIN_ALIGN.baseZ
+    ).addScaledVector(side, STATION_TRAIN_ALIGN.sideOffset);
+
+    const offset = THREE.MathUtils.lerp(
+        STATION_TRAIN_ALIGN.moveStartOffset,
+        STATION_TRAIN_ALIGN.moveStopOffset,
+        t
+    );
+
+    train.position.copy(basePos.clone().addScaledVector(dir, offset));
+
+    camera.position.set(-100, 10, 0);
+    camera.lookAt(train.position.x, 5, train.position.z);
+}
+
+function easeOutCubic(t){ return 1 - Math.pow(1 - t, 3); }
+// ✅ CAMERA LOGIC: PART 4 (ISE) - CLOSE THEN ZOOM OUT
+function updateIseCamera(sceneTime) {
+  const zoomDuration = 15.0;               // <-- makin besar = makin lambat zoomout
+  const t = Math.min(sceneTime / zoomDuration, 1);
+  const e = easeOutCubic(t);
+
+  // posisi awal (dekat stasiun)
+  const startPos = new THREE.Vector3(60, 10, -20);
+  // posisi akhir (menjauh)
+  const endPos   = new THREE.Vector3(100, 70, -100);
+
+  camera.position.lerpVectors(startPos, endPos, e);
+
+  // target lookAt (bisa titik stasiun / kereta)
+  const lookStart = new THREE.Vector3(10, 6, -25);
+  const lookEnd   = new THREE.Vector3(10, 30, -30);
+  currentLookAt.lerpVectors(lookStart, lookEnd, e);
+
+  camera.lookAt(currentLookAt);
+}
+
+function updateRailReverseCamera(sceneTime) {
+  const moveSpeed = 18;
+
+  // mulai dari ujung rel, jalan mundur
+  const startZ = railMaxZ - 20;
+  const camZ   = startZ - sceneTime * moveSpeed;
+
+  const camX = 6;
+  const camY = 9;
+
+  // lihat ke arah gerak (mundur), jadi lookAhead negatif
+  const lookAhead = 10;
+  const lookZ = camZ - lookAhead;
+
+  camera.position.set(camX, camY, camZ);
+  camera.lookAt(0, 2.0, lookZ);
+
+  // optional: stop/loop
+  // kalau mau berhenti di ujung:
+  // if (camZ < railMinZ + 10) { /* diam */ }
+
+  // kalau mau loop ulang:
+//   if (camZ < railMinZ - 60) {
+//     storyStartTime = clock.getElapsedTime(); // reset supaya ulang dari startZ
+//   }
+}
+function smoothstep(t){ return t*t*(3-2*t); }
+
+function setNightFactor(f) {
+  f = THREE.MathUtils.clamp(f, 0, 1);
+
+  // gelapkan exposure
+  renderer.toneMappingExposure = THREE.MathUtils.lerp(1.0, 0.55, f);
+
+  // gelapkan lampu
+  if (ambientLight) ambientLight.intensity = THREE.MathUtils.lerp(0.8, 0.12, f);
+  if (directionalLight) {
+    directionalLight.intensity = THREE.MathUtils.lerp(1.0, 0.18, f);
+    const dayC = new THREE.Color(0xffffff);
+    const nightC = new THREE.Color(0x6b7cff); // biru moonlight
+    directionalLight.color.copy(dayC).lerp(nightC, f);
+  }
+
+  // sky jadi lebih “malam”
+  if (sky?.material?.uniforms) {
+    const u = sky.material.uniforms;
+    u['turbidity'].value       = THREE.MathUtils.lerp(10, 2, f);
+    u['rayleigh'].value        = THREE.MathUtils.lerp(3, 0.25, f);
+    u['mieCoefficient'].value  = THREE.MathUtils.lerp(0.005, 0.001, f);
+    u['mieDirectionalG'].value = THREE.MathUtils.lerp(0.7, 0.85, f);
+
+    // turunkan matahari ke bawah horizon
+    const elevation = THREE.MathUtils.lerp(2, -6, f);
+    const azimuth = 180;
+    const phi = THREE.MathUtils.degToRad(90 - elevation);
+    const theta = THREE.MathUtils.degToRad(azimuth);
+    sun.setFromSphericalCoords(1, phi, theta);
+
+    u['sunPosition'].value.copy(sun);
+    if (water?.material?.uniforms?.sunDirection) {
+      water.material.uniforms['sunDirection'].value.copy(sun).normalize();
+    }
+    if (directionalLight) directionalLight.position.copy(sun);
+  }
+
+  // water lebih gelap
+  if (water?.material?.uniforms?.waterColor) {
+    const dayW = new THREE.Color(0x001e0f);
+    const nightW = new THREE.Color(0x00030a);
+    water.material.uniforms.waterColor.value.copy(dayW).lerp(nightW, f);
+  }
+  if (water?.material?.uniforms?.sunColor) {
+    const dayS = new THREE.Color(0xffffff);
+    const nightS = new THREE.Color(0x9fb0ff);
+    water.material.uniforms.sunColor.value.copy(dayS).lerp(nightS, f);
+  }
+}
+
+function switchToNightDepartScene() {
+  storyState = STORY_NIGHT_DEPART;
+  storyStartTime = clock.getElapsedTime();
+  cameraState = 'STATE_NIGHT_DEPART';
+
+  // Just toggle visibility (no freeze)
+  railGroup.visible    = true;
+  trainGroup.visible   = true;
+  islandGroup.visible  = false;
+  stationGroup.visible = false;
+  iseGroup.visible     = false;
+  railGroup.visible = false;
+
+  if (train) {
+    const yaw  = THREE.MathUtils.degToRad(STATION_TRAIN_ALIGN.rotYDeg);
+    const dir  = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
+    const side = new THREE.Vector3(-dir.z, 0, dir.x);
+
+    const basePos = new THREE.Vector3(
+      STATION_TRAIN_ALIGN.baseX,
+      STATION_TRAIN_ALIGN.baseY,
+      STATION_TRAIN_ALIGN.baseZ
+    ).addScaledVector(side, STATION_TRAIN_ALIGN.sideOffset);
+
+    // start di posisi stop (parkir)
+    train.position.copy(basePos.clone().addScaledVector(dir, STATION_TRAIN_ALIGN.moveStopOffset));
+    train.rotation.set(0, yaw, 0);
+
+    // ✅ kamera DIAM di dekat stasiun (silakan tweak angka ini)
+    const camPos = basePos.clone()
+      .addScaledVector(side, -120)   // kiri/kanan stasiun
+      .addScaledVector(dir, -80)     // mundur dari rel
+      .add(new THREE.Vector3(0, 22, 0)); // tinggi
+
+    camera.position.copy(camPos);
+
+    // lihat ke kereta
+    currentLookAt.copy(train.position).add(new THREE.Vector3(0, 8, 0));
+    camera.lookAt(currentLookAt);
+  }
+
+  setNightFactor(0);
+}
+
+
+function updateNightDepart(sceneTime, delta) {
+  if (!train) return;
+
+  const yaw  = THREE.MathUtils.degToRad(STATION_TRAIN_ALIGN.rotYDeg);
+  const dir  = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
+
+  // gelap pelan-pelan
+  const nightDur = 10.0;
+  const f = smoothstep(Math.min(sceneTime / nightDur, 1));
+  setNightFactor(f);
+
+  // ===== fade-out ending =====
+  const fadeStart = 10.0;
+  const fadeDur   = 4.0;
+  const waitDur   = 2.0;
+  let a = 0;
+
+  if (sceneTime > fadeStart) {
+    a = THREE.MathUtils.clamp((sceneTime - fadeStart) / fadeDur, 0, 1);
+    a = smoothstep(a);
+  }
+  setFade(a);
+
+  // Show ending screen setelah layar hitam
+  if (sceneTime > fadeStart + fadeDur + waitDur) {
+    const endingScreen = document.getElementById('endingScreen');
+    if (endingScreen) {
+      endingScreen.style.display = 'flex';
+      if (fadeOverlay) fadeOverlay.style.display = 'none';
+      if (timerElement) timerElement.style.display = 'none';
+      if (stateElement) stateElement.style.display = 'none';
+      if (fpsElement) fpsElement.style.display = 'none';
+    }
+    return;
+  }
+
+  if (a >= 1) return;
+
+  // kereta menjauh
+  const baseSpeed = 35;
+  const accel     = 8;
+  const speed = baseSpeed + accel * sceneTime;
+  train.position.addScaledVector(dir, speed * delta);
+
+  // kamera tetap, lookAt mengikuti kereta
+  const look = train.position.clone().add(new THREE.Vector3(0, 8, 0));
+  currentLookAt.lerp(look, 0.08);
+  camera.lookAt(currentLookAt);
+}
+
+// === MAIN LOOP ===
+function animate(currentTime) {
+  requestAnimationFrame(animate);
+
+  // FPS Limiter: Skip frame if too soon
+  if (currentTime - lastFrameTime < FRAME_TIME) {
+    return;
+  }
+  lastFrameTime = currentTime;
+
+  const delta      = clock.getDelta();
+  const globalTime = clock.getElapsedTime();
+  const sceneTime  = globalTime - storyStartTime;
+
+  // FPS Counter
+  fpsFrames++;
+  const now = performance.now();
+  if (now >= fpsLastTime + 1000) {
+    if (fpsElement) {
+      const fps = Math.round((fpsFrames * 1000) / (now - fpsLastTime));
+      fpsElement.textContent = `FPS: ${fps}`;
+      fpsElement.style.color = fps >= 50 ? 'lime' : fps >= 30 ? 'yellow' : 'red';
+    }
+    fpsFrames = 0;
+    fpsLastTime = now;
+  }
+
+const total = globalTime;
+const mm = Math.floor(total / 60);
+const ss = Math.floor(total % 60);
+
+if (timerElement) {
+  timerElement.textContent = `Time: ${String(mm).padStart(2,'0')}:${String(ss).padStart(2,'0')}`;
+}
+  if (stateElement) stateElement.textContent = `Scene: ${storyState} | Cam: ${cameraState}`;
+
+  // Update water lebih jarang untuk performa
+  if (water && fpsFrames % 2 === 0) {
+    water.material.uniforms['time'].value += 1.0 / 60.0;
+  }
+
+  // CTRL = Free Roam WASD, ALT = Orbit
+if (isOrbitMode) {
+  orbitControls.update();
+} else if (isFreeRoam && pointerControls.isLocked) {
+  const speed = 80 * delta;
+  const dir = new THREE.Vector3();
+  camera.getWorldDirection(dir);
+  const right = new THREE.Vector3();
+  right.crossVectors(camera.up, dir).normalize();
+  
+  // raycaster ini untuk collisoon
+  const raycaster = new THREE.Raycaster();
+  const collisionDist = 2;
+  const oldPos = camera.position.clone();
+  
+  if (keys.w) {
+    camera.position.addScaledVector(dir, speed);
+    raycaster.set(oldPos, dir);
+    const intersects = raycaster.intersectObjects(collisionObjects, false);
+    if (intersects.length > 0 && intersects[0].distance < collisionDist) camera.position.copy(oldPos);
+  }
+  if (keys.s) {
+    camera.position.addScaledVector(dir, -speed);
+    raycaster.set(oldPos, dir.clone().negate());
+    const intersects = raycaster.intersectObjects(collisionObjects, false);
+    if (intersects.length > 0 && intersects[0].distance < collisionDist) camera.position.copy(oldPos);
+  }
+  if (keys.a) {
+    camera.position.addScaledVector(right, speed);
+    raycaster.set(oldPos, right);
+    const intersects = raycaster.intersectObjects(collisionObjects, false);
+    if (intersects.length > 0 && intersects[0].distance < collisionDist) camera.position.copy(oldPos);
+  }
+  if (keys.d) {
+    camera.position.addScaledVector(right, -speed);
+    raycaster.set(oldPos, right.clone().negate());
+    const intersects = raycaster.intersectObjects(collisionObjects, false);
+    if (intersects.length > 0 && intersects[0].distance < collisionDist) camera.position.copy(oldPos);
+  }
+  if (keys.space) camera.position.y += speed;
+  if (keys.shift) camera.position.y -= speed;
+} else {
+  // === state machine kamera kamu yang sekarang ===
+  if (storyState === STORY_RAIL) {
+      updateRailCamera(sceneTime);
+      if (sceneTime > 4.0) switchToTrainScene();
+  }
+  else if (storyState === STORY_TRAIN) {
+      if (train) {
+          const speedTrain = 30;
+          train.position.z -= speedTrain * delta;
+          if (train.position.z < -400) train.position.z = 400;
+      }
+      updateTrainCamera(sceneTime, delta);
+      if (sceneTime > 25.0) switchToIslandScene();
+  }
+  else if (storyState === STORY_ISLAND) {
+      updateIslandCamera(sceneTime);
+      if (sceneTime > 20.0) switchToStationScene();
+  }
+  else if (storyState === STORY_STATION) {
+      updateStationCamera(sceneTime);
+      if (sceneTime > 8.0) switchToIseScene();
+  }
+  else if (storyState === STORY_ISE) {
+      updateIseCamera(sceneTime);
+      if (sceneTime > 8.0) switchToRailReverseScene();
+  }
+  else if (storyState === STORY_RAIL_REVERSE) {
+      updateRailReverseCamera(sceneTime);
+      if (sceneTime > 4.0) switchToNightDepartScene();
+  }
+  else if (storyState === STORY_NIGHT_DEPART) {
+      updateNightDepart(sceneTime, delta);
+  }
+}
+
+
+  renderer.render(scene, camera);
+}
+
+init();
+animate();
+</script>
+</body>
+</html>
